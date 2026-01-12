@@ -1,0 +1,20 @@
+name: public-audit (PR)
+
+on:
+  pull_request:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Public audit (PR commit range)
+        run: |
+          set -euxo pipefail
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          ./public_audit.sh --log-opts "${base}..${head}"
+

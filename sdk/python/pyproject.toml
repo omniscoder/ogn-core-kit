@@ -24,6 +24,12 @@ dependencies = [
   "typing-extensions>=4.0",
 ]
 
+[project.optional-dependencies]
+dev = [
+  "jsonschema>=4.0",
+  "pytest>=7.0",
+]
+
 [project.urls]
 Homepage = "https://github.com/omniscoder/ogn-core-kit"
 Issues = "https://github.com/omniscoder/ogn-core-kit/issues"

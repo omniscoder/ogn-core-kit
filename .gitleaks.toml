@@ -1,0 +1,5 @@
+title = "ogn-core-kit gitleaks configuration"
+
+[extend]
+useDefault = true
+

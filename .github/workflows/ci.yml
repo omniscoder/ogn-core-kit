@@ -1,0 +1,33 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install
+        run: |
+          set -euxo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -e "./sdk/python[dev]"
+
+      - name: Unit tests
+        run: |
+          set -euxo pipefail
+          pytest -q
+
+      - name: Conformance (schema)
+        run: |
+          set -euxo pipefail
+          python tools/validate_conformance.py
+
