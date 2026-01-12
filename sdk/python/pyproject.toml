@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ogn-sdk"
+version = "0.9.1"
+description = "Thin helpers for launching local OGN runs and calling the OGN control plane"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+authors = [
+  {name = "OGN", email = "support@ogn.ai"}
+]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Operating System :: POSIX :: Linux",
+]
+dependencies = [
+  "grpcio>=1.62",
+  "protobuf>=4.25",
+  "typing-extensions>=4.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/omniscoder/ogn-core-kit"
+Issues = "https://github.com/omniscoder/ogn-core-kit/issues"
+
+[project.scripts]
+ogn = "ogn_cli.main:main"
+ogn-run-giab-validation = "ogn_cli.tools.run_giab_validation:main"
+ogn-runner = "ogn_runner.main:main"
+
+[tool.setuptools]
+packages = ["ogn_cli", "ogn_cli.tools", "ogn_sdk", "ogn_runner"]
