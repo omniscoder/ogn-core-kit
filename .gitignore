@@ -1,0 +1,28 @@
+# Datasets / large local artifacts
+datasets/
+
+# Python
+__pycache__/
+*.py[cod]
+.Python
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+*.egg-info/
+
+# Nextflow
+.nextflow*/
+work/
+
+# Rust
+target/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+
