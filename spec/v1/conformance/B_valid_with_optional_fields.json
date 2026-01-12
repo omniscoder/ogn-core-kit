@@ -1,0 +1,47 @@
+{
+  "kind": "jobspec",
+  "name": "B. Valid job spec with optional fields",
+  "jobspec": {
+    "schema_version": "v1",
+    "run_id": "run-2",
+    "tenant_id": "tenant-demo",
+    "submitted_at": "2025-12-17T00:00:00Z",
+    "engine": {
+      "version": "engine-v1",
+      "profile": "demo-tiny",
+      "parameters": {
+        "bundle": "ogx-demo-bundle",
+        "gpu_streams": 1,
+        "sleep_ms": 250
+      }
+    },
+    "inputs": {
+      "fastq_uris": ["s3://ogn/demo/reads_R1.fq.gz", "s3://ogn/demo/reads_R2.fq.gz"],
+      "reference_uri": "s3://ogn/demo/reference.fa",
+      "extra": {
+        "sample_id": "NA12878",
+        "notes": "optional inputs.extra passthrough"
+      }
+    },
+    "outputs": {
+      "vcf": {
+        "uri": "s3://ogn/tenants/tenant-demo/runs/run-2/out.vcf.gz",
+        "put_url": "http://minio:9000/ogn/tenants/tenant-demo/runs/run-2/out.vcf.gz?X-Amz-Signature=...",
+        "media_type": "application/gzip"
+      },
+      "logs": {
+        "uri": "s3://ogn/tenants/tenant-demo/runs/run-2/logs.jsonl",
+        "put_url": "http://minio:9000/ogn/tenants/tenant-demo/runs/run-2/logs.jsonl?X-Amz-Signature=...",
+        "optional": true,
+        "media_type": "application/x-ndjson"
+      }
+    },
+    "control": {
+      "cancel_subject": "ogn.run.run-2.cancel",
+      "logs_subject": "ogn.run.logs.run-2"
+    }
+  },
+  "want_ok": true,
+  "want_code": "OK"
+}
+

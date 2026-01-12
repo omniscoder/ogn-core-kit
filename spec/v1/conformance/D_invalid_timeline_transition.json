@@ -1,0 +1,9 @@
+{
+  "kind": "timeline",
+  "name": "D. Invalid transition in timeline",
+  "timeline": ["QUEUED", "RUNNING", "QUEUED"],
+  "want_ok": false,
+  "want_code": "INVALID_TIMELINE",
+  "want_error": "timeline: invalid transition RUNNING -> QUEUED"
+}
+

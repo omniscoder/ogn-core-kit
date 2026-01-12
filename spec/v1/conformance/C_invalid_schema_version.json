@@ -1,0 +1,16 @@
+{
+  "kind": "jobspec",
+  "name": "C. Invalid schema version string",
+  "jobspec": {
+    "schema_version": "v0",
+    "run_id": "run-3",
+    "tenant_id": "tenant-demo",
+    "engine": { "version": "engine-v1", "profile": "demo-tiny" },
+    "inputs": { "fastq_uris": ["s3://ogn/demo/reads_R1.fq.gz"], "reference_uri": "s3://ogn/demo/reference.fa" },
+    "outputs": { "vcf": { "uri": "s3://ogn/out.vcf.gz" } }
+  },
+  "want_ok": false,
+  "want_code": "INVALID_JOBSPEC",
+  "want_error": "jobspec: schema_version must be \"v1\""
+}
+

@@ -1,0 +1,26 @@
+{
+  "kind": "jobspec",
+  "name": "A. Minimal valid job spec",
+  "jobspec": {
+    "schema_version": "v1",
+    "run_id": "run-1",
+    "tenant_id": "tenant-demo",
+    "submitted_at": "2025-12-17T00:00:00Z",
+    "engine": {
+      "version": "engine-v1",
+      "profile": "demo-tiny"
+    },
+    "inputs": {
+      "fastq_uris": ["s3://ogn/demo/reads_R1.fq.gz"],
+      "reference_uri": "s3://ogn/demo/reference.fa"
+    },
+    "outputs": {
+      "vcf": {
+        "uri": "s3://ogn/tenants/tenant-demo/runs/run-1/out.vcf.gz"
+      }
+    }
+  },
+  "want_ok": true,
+  "want_code": "OK"
+}
+
