@@ -40,7 +40,7 @@ jobs:
         id: python_version
         run: |
           set -euo pipefail
-          pyv="$(sed -n 's/^version *= *"\\(.*\\)".*/\\1/p' sdk/python/pyproject.toml | head -n1)"
+          pyv="$(sed -nE 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*\"([^\"]+)\".*/\1/p' sdk/python/pyproject.toml | head -n1)"
           if [[ -z "${pyv}" ]]; then
             echo "::error::Could not parse version from sdk/python/pyproject.toml"
             exit 1
@@ -51,7 +51,7 @@ jobs:
         id: rust_version
         run: |
           set -euo pipefail
-          rustv="$(sed -n 's/^version *= *"\\(.*\\)".*/\\1/p' sdk/rust/ogn-sdk/Cargo.toml | head -n1)"
+          rustv="$(sed -nE 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*\"([^\"]+)\".*/\1/p' sdk/rust/ogn-sdk/Cargo.toml | head -n1)"
           if [[ -z "${rustv}" ]]; then
             echo "::error::Could not parse version from sdk/rust/ogn-sdk/Cargo.toml"
             exit 1
