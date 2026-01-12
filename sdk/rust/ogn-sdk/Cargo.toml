@@ -1,6 +1,6 @@
 [package]
 name = "ogn-sdk"
-version = "0.1.0"
+version = "0.9.1"
 edition = "2021"
 license = "Apache-2.0"
 description = "Convenience helpers for invoking ogn_run from Rust"
