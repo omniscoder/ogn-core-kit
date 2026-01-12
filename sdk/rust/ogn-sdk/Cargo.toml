@@ -1,0 +1,24 @@
+[package]
+name = "ogn-sdk"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Convenience helpers for invoking ogn_run from Rust"
+repository = "https://github.com/your-org/OGN"
+keywords = ["ogn", "genomics", "cli"]
+categories = ["science", "command-line-utilities"]
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+default = []
+
+[dependencies]
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[dev-dependencies]
+which = "6"
+tempfile = "3"
