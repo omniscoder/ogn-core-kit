@@ -1,6 +1,14 @@
 # ogn-sdk (Python)
 
-`ogn-sdk` is a tiny convenience layer around the `ogn_run` binary. Install it with:
+`ogn-sdk` is a small set of Python wrappers and CLIs for integrating with the OGN engine.
+
+It includes:
+
+- `ogn_sdk`: a thin convenience layer around the `ogn_run` binary
+- `ogn` CLI: local orchestration helpers (doctor/setup/run/results)
+- `ogn-runner`: the stable Job Spec v1 worker entrypoint (`ogn-runner -`)
+
+Install it with:
 
 ```bash
 python3 -m pip install ogn-sdk

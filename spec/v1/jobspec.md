@@ -1,6 +1,7 @@
 # Job Spec JSON v1 (frozen pilot contract)
 
-Job Spec v1 is the payload published on `ogn.run.submit.v1` (gateway → worker). It is validated by `internal/jobspec/v1.go` and used end-to-end in the pilot.
+Job Spec v1 is the payload produced by the OGN control plane (gateway) and consumed by workers (typically via
+`ogn-runner -`). It is intentionally strict and boring: this contract is the integration moat.
 
 ## Versioning policy
 
@@ -14,7 +15,10 @@ Job Spec v1 is the payload published on `ogn.run.submit.v1` (gateway → worker)
   - You MUST NOT remove fields.
 - Any breaking change requires a new `schema_version` (v2+) and continued support for v1 during the pilot.
 
-Conformance fixtures live in `spec/v1/conformance/` and are enforced by `internal/jobspec/conformance_test.go`.
+Conformance fixtures live in `spec/v1/conformance/`.
+
+- This repo includes schema-level checks via `tools/validate_conformance.py`.
+- The control plane (gateway) is responsible for enforcing additional semantic rules (e.g. timeline/state machines).
 
 ## Schema (high level)
 
@@ -44,4 +48,3 @@ Optional fields:
 - `outputs.*.uri` is the **stable artifact identity** (e.g. `s3://bucket/key`).
 - `outputs.*.put_url` is a short-lived presigned URL used only for upload.
 - Finalization events MUST reference stable URIs (never presigned URLs).
-
