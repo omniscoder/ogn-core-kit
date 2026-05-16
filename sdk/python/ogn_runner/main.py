@@ -18,6 +18,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Mapping
 
+from .receipt import ArtifactReceipt, build_receipt, make_artifact_receipt
+
 
 def _utc_now_iso() -> str:
     return _dt.datetime.now(tz=_dt.timezone.utc).replace(microsecond=0).isoformat()
@@ -266,6 +268,177 @@ def _upload_to_uri(uri: str, src: Path, base_dir: Path) -> None:
     raise RuntimeError(f"unsupported output URI scheme: {scheme} ({uri})")
 
 
+def _upload_outputs(
+    artifacts: Mapping[str, ArtifactTarget],
+    local_artifacts: Mapping[str, Path],
+    base_dir: Path,
+) -> list[str]:
+    local_by_id: dict[str, Path] = {
+        "vcf": local_artifacts.get("vcf"),
+        "out.vcf.gz": local_artifacts.get("vcf"),
+        "vcf_tbi": local_artifacts.get("vcf_tbi"),
+        "out.vcf.gz.tbi": local_artifacts.get("vcf_tbi"),
+        "provenance": local_artifacts.get("provenance"),
+        "provenance.json": local_artifacts.get("provenance"),
+        "logs": local_artifacts.get("logs"),
+        "logs.jsonl": local_artifacts.get("logs"),
+        "receipt": local_artifacts.get("receipt"),
+        "receipt.json": local_artifacts.get("receipt"),
+    }
+
+    upload_failures: list[str] = []
+    for name, target in artifacts.items():
+        src = local_by_id.get(name)
+        if src is None:
+            if target.optional:
+                continue
+            upload_failures.append(f"{name}: unsupported artifact id")
+            continue
+
+        if not src.exists():
+            if target.optional:
+                continue
+            upload_failures.append(f"{name}: missing local artifact {src.name}")
+            continue
+
+        try:
+            if target.put_url:
+                _http_put_file(target.put_url, src, target.media_type)
+            else:
+                _upload_to_uri(target.uri, src, base_dir)
+        except Exception as ex:
+            if target.optional:
+                continue
+            upload_failures.append(f"{name}: upload failed: {ex}")
+
+    return upload_failures
+
+
+def _write_mock_vcf(output_vcf: Path) -> None:
+    output_vcf.write_text(
+        "\n".join(
+            [
+                "##fileformat=VCFv4.3",
+                "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tsample",
+                "chr20\t1\t.\tA\tC\t.\tPASS\t.\tGT\t0/1",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+
+def _write_mock_logs(log_path: Path, *, started_at: str, finished_at: str) -> None:
+    events = [
+        {"ts": started_at, "stream": "runner", "line": "mock run requested"},
+        {"ts": started_at, "stream": "engine", "line": "mock engine selected"},
+        {"ts": finished_at, "stream": "runner", "line": "mock run complete"},
+    ]
+    with log_path.open("w", encoding="utf-8") as fp:
+        for event in events:
+            fp.write(json.dumps(event, separators=(",", ":")) + "\n")
+
+
+def _run_mock_mode(
+    *,
+    spec: Mapping[str, Any],
+    artifacts: Mapping[str, ArtifactTarget],
+    base_dir: Path,
+    workdir: Path,
+) -> tuple[int, bool]:
+    outputs_dir = workdir / "outputs"
+    outputs_dir.mkdir(parents=True, exist_ok=True)
+
+    local_vcf = outputs_dir / "out.vcf.gz"
+    local_vcf_tbi = outputs_dir / "out.vcf.gz.tbi"
+    local_logs = outputs_dir / "logs.jsonl"
+    local_prov = outputs_dir / "provenance.json"
+    local_receipt = outputs_dir / "receipt.json"
+
+    local_artifacts: dict[str, Path] = {
+        "vcf": local_vcf,
+        "vcf_tbi": local_vcf_tbi,
+        "logs": local_logs,
+        "provenance": local_prov,
+        "receipt": local_receipt,
+    }
+
+    started_at = _utc_now_iso()
+    finished_at = _utc_now_iso()
+    ok = False
+    error: str | None = None
+
+    try:
+        _write_mock_vcf(local_vcf)
+        _write_mock_logs(local_logs, started_at=started_at, finished_at=finished_at)
+        local_artifacts["vcf"] = local_vcf
+
+        if _artifact_by_alias(artifacts, "vcf_tbi", "out.vcf.gz.tbi") is not None:
+            local_vcf_tbi.write_text("##fileformat=VCFv4.3 mock index\n", encoding="utf-8")
+
+        local_artifacts["provenance"] = local_prov
+        local_artifacts["logs"] = local_logs
+        provenance = _build_provenance(
+            job=spec,
+            engine_version={"raw": "ogn mock runner", "version": "mock", "git_sha": "mock"},
+            outputs=artifacts,
+            started_at=started_at,
+            finished_at=finished_at,
+            ok=True,
+            error=None,
+            engine_exit_code=0,
+            local_artifacts=local_artifacts,
+        )
+        local_prov.write_text(json.dumps(provenance, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+        receipt_artifacts: list[ArtifactReceipt] = []
+        for name, target in artifacts.items():
+            src = local_artifacts.get(name)
+            if src is None or not src.exists():
+                if target.optional:
+                    continue
+                continue
+            receipt_artifacts.append(
+                make_artifact_receipt(
+                    name=name,
+                    path=src,
+                    media_type=target.media_type,
+                    optional=target.optional,
+                )
+            )
+
+        engine = _expect_mapping(spec.get("engine"), "engine")
+        receipt = build_receipt(
+            run_id=str(spec.get("run_id")),
+            tenant_id=str(spec.get("tenant_id")),
+            created_at=finished_at,
+            engine=engine,
+            inputs=_expect_mapping(spec.get("inputs"), "inputs"),
+            outputs=_expect_mapping(spec.get("outputs"), "outputs"),
+            artifacts=receipt_artifacts,
+            verification={"status": "unsigned"},
+        )
+        local_receipt.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        local_artifacts["receipt"] = local_receipt
+        ok = True
+    except Exception as ex:
+        error = f"{type(ex).__name__}: {ex}"
+        sys.stderr.write(f"[ogn-runner] mock error: {error}\n")
+        traceback.print_exc(file=sys.stderr)
+
+    upload_failures = _upload_outputs(artifacts=artifacts, local_artifacts=local_artifacts, base_dir=base_dir)
+    if upload_failures:
+        sys.stderr.write("[ogn-runner] upload failures:\n")
+        for msg in upload_failures:
+            sys.stderr.write(f"  - {msg}\n")
+        ok = False
+
+    if error is not None:
+        ok = False
+
+    return (0 if ok else 1), ok
+
+
 def _ensure_fai(reference_path: Path) -> None:
     fai = reference_path.with_suffix(reference_path.suffix + ".fai")
     if fai.exists():
@@ -483,7 +656,10 @@ def _artifact_by_alias(artifacts: Mapping[str, ArtifactTarget], *names: str) -> 
 def run_ogn_runner(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="ogn-runner", description="OGN engine runner for Job Spec JSON v1")
     ap.add_argument("job_spec", nargs="?", help="Path to Job Spec JSON v1 (or '-' for stdin)")
-    ap.add_argument("--version", action="store_true", help="Print engine version and exit")
+    ap_action = ap.add_mutually_exclusive_group()
+    ap_action.add_argument("--version", action="store_true", help="Print engine version and exit")
+    ap_action.add_argument("--validate", action="store_true", help="Validate job spec and exit")
+    ap_action.add_argument("--mock", action="store_true", help="Run mock mode without OGN engine")
     ap.add_argument(
         "-E",
         "--engine-bin",
@@ -493,10 +669,10 @@ def run_ogn_runner(argv: list[str]) -> int:
     ap.add_argument("--workdir", help="Explicit work directory (default: temp dir)")
     args = ap.parse_args(argv[1:])
 
-    engine_bin = (
-        args.engine_bin or os.environ.get("OGN_ENGINE_BIN") or shutil.which("ogn_run") or "ogn_run"
-    )
     if args.version:
+        engine_bin = (
+            args.engine_bin or os.environ.get("OGN_ENGINE_BIN") or shutil.which("ogn_run") or "ogn_run"
+        )
         info = _detect_engine_version(engine_bin)
         sys.stdout.write(info.get("raw", "unknown") + "\n")
         return 0
@@ -514,17 +690,15 @@ def run_ogn_runner(argv: list[str]) -> int:
         sys.stderr.write(f"[ogn-runner] job spec invalid: {ex}\n")
         return 2
 
+    if args.validate:
+        sys.stdout.write("VALID Job Spec v1\n")
+        return 0
+
     workdir = Path(args.workdir).resolve() if args.workdir else Path(tempfile.mkdtemp(prefix="ogn-runner-"))
     inputs_dir = workdir / "inputs"
     outputs_dir = workdir / "outputs"
     inputs_dir.mkdir(parents=True, exist_ok=True)
     outputs_dir.mkdir(parents=True, exist_ok=True)
-
-    started_at = _utc_now_iso()
-    engine_version = _detect_engine_version(engine_bin)
-    ok = False
-    error: str | None = None
-    exit_code = 1
 
     artifacts = _parse_artifacts(spec.get("outputs"))
     vcf_target = _artifact_by_alias(artifacts, "vcf", "out.vcf.gz")
@@ -538,6 +712,23 @@ def run_ogn_runner(argv: list[str]) -> int:
     local_vcf_tbi = outputs_dir / "out.vcf.gz.tbi"
     local_logs = outputs_dir / "logs.jsonl"
     local_prov = outputs_dir / "provenance.json"
+
+    if args.mock:
+        return _run_mock_mode(
+            spec=spec,
+            artifacts=artifacts,
+            base_dir=base_dir,
+            workdir=workdir,
+        )[0]
+
+    engine_bin = (
+        args.engine_bin or os.environ.get("OGN_ENGINE_BIN") or shutil.which("ogn_run") or "ogn_run"
+    )
+    started_at = _utc_now_iso()
+    engine_version = _detect_engine_version(engine_bin)
+    ok = False
+    error: str | None = None
+    exit_code = 1
 
     local_artifacts: dict[str, Path] = {
         "vcf": local_vcf,
@@ -609,39 +800,7 @@ def run_ogn_runner(argv: list[str]) -> int:
     local_prov.write_text(json.dumps(provenance, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     # Upload artifacts (best-effort for optional entries; strict for required).
-    upload_failures: list[str] = []
-    local_by_id: dict[str, Path] = {
-        "vcf": local_vcf,
-        "out.vcf.gz": local_vcf,
-        "vcf_tbi": local_vcf_tbi,
-        "out.vcf.gz.tbi": local_vcf_tbi,
-        "provenance": local_prov,
-        "provenance.json": local_prov,
-        "logs": local_logs,
-        "logs.jsonl": local_logs,
-    }
-    for name, target in artifacts.items():
-        src = local_by_id.get(name)
-        if src is None:
-            if target.optional:
-                continue
-            upload_failures.append(f"{name}: unsupported artifact id")
-            continue
-
-        if not src.exists():
-            if target.optional:
-                continue
-            upload_failures.append(f"{name}: missing local artifact {src.name}")
-            continue
-        try:
-            if target.put_url:
-                _http_put_file(target.put_url, src, target.media_type)
-            else:
-                _upload_to_uri(target.uri, src, base_dir)
-        except Exception as ex:
-            if target.optional:
-                continue
-            upload_failures.append(f"{name}: upload failed: {ex}")
+    upload_failures = _upload_outputs(artifacts=artifacts, local_artifacts=local_artifacts, base_dir=base_dir)
 
     if upload_failures:
         sys.stderr.write("[ogn-runner] upload failures:\n")

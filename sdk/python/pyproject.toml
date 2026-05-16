@@ -38,6 +38,7 @@ Issues = "https://github.com/omniscoder/ogn-core-kit/issues"
 ogn = "ogn_cli.main:main"
 ogn-run-giab-validation = "ogn_cli.tools.run_giab_validation:main"
 ogn-runner = "ogn_runner.main:main"
+ogn-verify-receipt = "ogn_runner.verify_receipt:main"
 
 [tool.setuptools]
 packages = ["ogn_cli", "ogn_cli.tools", "ogn_sdk", "ogn_runner"]

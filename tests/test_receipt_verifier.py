@@ -1,0 +1,69 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+from ogn_runner.receipt import build_receipt, make_artifact_receipt
+from ogn_runner.verify_receipt import verify_receipt
+
+
+def _sha256_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _runner_path() -> list[str]:
+    return [sys.executable, "-m", "ogn_runner.verify_receipt"]
+
+
+def _write_receipt_with_artifact(tmp_path: Path) -> tuple[Path, Path]:
+    artifact_path = tmp_path / "artifact.vcf"
+    artifact_contents = "chr20\t1\t.\tA\tC\t.\tPASS\t.\tGT\t0/1\n"
+    artifact_path.write_text(artifact_contents, encoding="utf-8")
+
+    artifact = make_artifact_receipt(
+        name="artifact",
+        path=artifact_path,
+        media_type="text/plain",
+        optional=False,
+    )
+    receipt = build_receipt(
+        run_id="run-verify-001",
+        tenant_id="tenant-verify",
+        created_at="2026-01-01T00:00:00+00:00",
+        engine={"version": "demo", "profile": "demo-tiny"},
+        inputs={"fastq_uris": ["reads.fastq.gz"], "reference_uri": "reference.fa"},
+        outputs={"vcf": {"uri": str(artifact_path)}},
+        artifacts=[artifact],
+        verification={"status": "unsigned"},
+    )
+    receipt["artifacts"][0]["sha256"] = _sha256_text(artifact_contents)
+
+    receipt_path = tmp_path / "receipt.json"
+    receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True), encoding="utf-8")
+    return receipt_path, artifact_path
+
+
+def test_verify_receipt_valid(tmp_path: Path) -> None:
+    receipt_path, artifact_path = _write_receipt_with_artifact(tmp_path)
+    proc = subprocess.run(_runner_path() + [str(receipt_path)], capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+    assert "receipt valid" in proc.stdout
+    assert len(verify_receipt(receipt_path, metadata_only=False)) == 0
+
+
+def test_verify_receipt_invalid_hash(tmp_path: Path) -> None:
+    receipt_path, artifact_path = _write_receipt_with_artifact(tmp_path)
+    artifact_path.write_text("mutated", encoding="utf-8")
+    proc = subprocess.run(_runner_path() + [str(receipt_path)], capture_output=True, text=True)
+    assert proc.returncode == 1
+    assert "hash mismatch" in proc.stderr + proc.stdout
+
+
+def test_verify_receipt_metadata_only(tmp_path: Path) -> None:
+    receipt_path, artifact_path = _write_receipt_with_artifact(tmp_path)
+    artifact_path.unlink()
+    proc = subprocess.run(_runner_path() + ["--metadata-only", str(receipt_path)], capture_output=True, text=True)
+    assert proc.returncode == 0

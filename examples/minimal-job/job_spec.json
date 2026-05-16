@@ -1,0 +1,31 @@
+{
+  "schema_version": "v1",
+  "run_id": "run-minimal-demo-0001",
+  "tenant_id": "tenant-open",
+  "engine": {
+    "version": "demo",
+    "profile": "demo-tiny",
+    "parameters": {
+      "cpu_only": true
+    }
+  },
+  "inputs": {
+    "fastq_uris": ["file://tmp/requires-input-1.fastq.gz"],
+    "reference_uri": "file://tmp/reference.fa",
+    "extra": {}
+  },
+  "outputs": {
+    "vcf": {
+      "uri": "out.vcf.gz"
+    },
+    "provenance": {
+      "uri": "provenance.json"
+    },
+    "logs": {
+      "uri": "logs.jsonl"
+    },
+    "receipt": {
+      "uri": "receipt.json"
+    }
+  }
+}
