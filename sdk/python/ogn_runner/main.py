@@ -5,9 +5,11 @@ import dataclasses
 import datetime as _dt
 import hashlib
 import http.client
+import io
 import json
 import os
 import platform
+import tarfile
 import shutil
 import subprocess
 import sys
@@ -293,6 +295,9 @@ def _upload_outputs(
         "logs.jsonl": local_artifacts.get("logs"),
         "receipt": local_artifacts.get("receipt"),
         "receipt.json": local_artifacts.get("receipt"),
+        "proof_bundle": local_artifacts.get("proof_bundle"),
+        "proof_bundle.tar.gz": local_artifacts.get("proof_bundle"),
+        "proof/bundle.tar.gz": local_artifacts.get("proof_bundle"),
     }
 
     upload_failures: list[str] = []
@@ -348,6 +353,61 @@ def _write_mock_logs(log_path: Path, *, started_at: str, finished_at: str) -> No
             fp.write(json.dumps(event, separators=(",", ":")) + "\n")
 
 
+def _write_mock_proof_bundle(
+    *,
+    bundle_path: Path,
+    output_vcf: Path,
+    provenance: Path,
+    logs: Path,
+    receipt: Path,
+) -> None:
+    manifest_items = [
+        ("out.vcf.gz", output_vcf),
+        ("provenance.json", provenance),
+        ("logs.jsonl", logs),
+        ("receipt.json", receipt),
+    ]
+    files = {
+        "out.vcf.gz": output_vcf,
+        "provenance.json": provenance,
+        "logs.jsonl": logs,
+        "receipt.json": receipt,
+    }
+
+    manifest = {
+        "created_at": _utc_now_iso(),
+        "files": [],
+    }
+    for filename, src in manifest_items:
+        if not src.exists():
+            raise FileNotFoundError(f"required mock proof file not found: {src}")
+        manifest["files"].append(
+            {
+                "path": filename,
+                "size_bytes": src.stat().st_size,
+                "sha256": _sha256_file(src),
+            }
+        )
+
+    manifest_path = bundle_path.parent / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    files["manifest.json"] = manifest_path
+    with tarfile.open(bundle_path, "w:gz") as tar:
+        for arcname in sorted(files):
+            src = files[arcname]
+            payload = src.read_bytes()
+            info = tarfile.TarInfo(name=arcname)
+            info.size = len(payload)
+            info.mtime = 0
+            info.uid = 0
+            info.gid = 0
+            info.uname = ""
+            info.gname = ""
+            tar.addfile(info, io.BytesIO(payload))
+
+
 def _run_mock_mode(
     *,
     spec: Mapping[str, Any],
@@ -363,6 +423,7 @@ def _run_mock_mode(
     local_logs = outputs_dir / "logs.jsonl"
     local_prov = outputs_dir / "provenance.json"
     local_receipt = outputs_dir / "receipt.json"
+    local_proof_bundle = outputs_dir / "proof_bundle.tar.gz"
 
     local_artifacts: dict[str, Path] = {
         "vcf": local_vcf,
@@ -371,6 +432,7 @@ def _run_mock_mode(
         "provenance": local_prov,
         "receipt": local_receipt,
     }
+    proof_target = _artifact_by_alias(artifacts, "proof_bundle", "proof_bundle.tar.gz", "proof/bundle.tar.gz")
 
     started_at = _utc_now_iso()
     finished_at = _utc_now_iso()
@@ -399,9 +461,13 @@ def _run_mock_mode(
             local_artifacts=local_artifacts,
         )
         local_prov.write_text(json.dumps(provenance, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        local_artifacts["provenance"] = local_prov
+        local_artifacts["logs"] = local_logs
 
         receipt_artifacts: list[ArtifactReceipt] = []
         for name, target in artifacts.items():
+            if _artifact_by_alias({name: target}, "proof_bundle", "proof_bundle.tar.gz", "proof/bundle.tar.gz") is not None:
+                continue
             src = local_artifacts.get(name)
             if src is None or not src.exists():
                 if target.optional:
@@ -432,6 +498,48 @@ def _run_mock_mode(
         )
         local_receipt.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         local_artifacts["receipt"] = local_receipt
+
+        if proof_target is not None:
+            _write_mock_proof_bundle(
+                bundle_path=local_proof_bundle,
+                output_vcf=local_vcf,
+                provenance=local_prov,
+                logs=local_logs,
+                receipt=local_receipt,
+            )
+            local_artifacts["proof_bundle"] = local_proof_bundle
+            proof_path = _output_path_for_receipt(proof_target, base_dir=base_dir) or local_proof_bundle
+            receipt_artifacts.append(
+                make_artifact_receipt(
+                    name=proof_target.name,
+                    path=proof_path,
+                    media_type=proof_target.media_type,
+                    optional=proof_target.optional,
+                    base_dir=base_dir,
+                    source_path=local_proof_bundle,
+                )
+            )
+
+            receipt = build_receipt(
+                run_id=str(spec.get("run_id")),
+                tenant_id=str(spec.get("tenant_id")),
+                created_at=finished_at,
+                engine=engine,
+                inputs=_expect_mapping(spec.get("inputs"), "inputs"),
+                outputs=_expect_mapping(spec.get("outputs"), "outputs"),
+                artifacts=receipt_artifacts,
+                verification={"status": "unsigned"},
+            )
+            local_receipt.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+            # Rebuild proof bundle so its manifest points at the final receipt hash.
+            _write_mock_proof_bundle(
+                bundle_path=local_proof_bundle,
+                output_vcf=local_vcf,
+                provenance=local_prov,
+                logs=local_logs,
+                receipt=local_receipt,
+            )
         ok = True
     except Exception as ex:
         error = f"{type(ex).__name__}: {ex}"
