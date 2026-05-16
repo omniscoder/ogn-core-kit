@@ -360,6 +360,7 @@ def _write_mock_proof_bundle(
     provenance: Path,
     logs: Path,
     receipt: Path,
+    created_at: str,
 ) -> None:
     manifest_items = [
         ("out.vcf.gz", output_vcf),
@@ -375,7 +376,7 @@ def _write_mock_proof_bundle(
     }
 
     manifest = {
-        "created_at": _utc_now_iso(),
+        "created_at": created_at,
         "files": [],
     }
     for filename, src in manifest_items:
@@ -506,6 +507,7 @@ def _run_mock_mode(
                 provenance=local_prov,
                 logs=local_logs,
                 receipt=local_receipt,
+                created_at=finished_at,
             )
             local_artifacts["proof_bundle"] = local_proof_bundle
             proof_path = _output_path_for_receipt(proof_target, base_dir=base_dir) or local_proof_bundle
@@ -532,14 +534,6 @@ def _run_mock_mode(
             )
             local_receipt.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
-            # Rebuild proof bundle so its manifest points at the final receipt hash.
-            _write_mock_proof_bundle(
-                bundle_path=local_proof_bundle,
-                output_vcf=local_vcf,
-                provenance=local_prov,
-                logs=local_logs,
-                receipt=local_receipt,
-            )
         ok = True
     except Exception as ex:
         error = f"{type(ex).__name__}: {ex}"

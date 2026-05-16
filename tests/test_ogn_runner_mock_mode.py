@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from ogn_runner import receipt as receipt_lib
+from ogn_runner.main import _write_mock_proof_bundle
 
 
 def _runner_cmd() -> list[str]:
@@ -103,14 +104,75 @@ def test_ogn_runner_mock_mode_proof_bundle(tmp_path: Path) -> None:
         assert names == expected_names
         manifest_member = tf.getmember("manifest.json")
         manifest = json.loads(tf.extractfile(manifest_member).read())
+        bundled_receipt_member = tf.getmember("receipt.json")
+        bundled_receipt = tf.extractfile(bundled_receipt_member).read()
 
     manifest_by_path = {entry["path"]: entry["sha256"] for entry in manifest["files"]}
     assert manifest_by_path["out.vcf.gz"] == _sha256_text((tmp_path / "out.vcf.gz").read_bytes())
     assert manifest_by_path["provenance.json"] == _sha256_text((tmp_path / "provenance.json").read_bytes())
     assert manifest_by_path["logs.jsonl"] == _sha256_text((tmp_path / "logs.jsonl").read_bytes())
-    assert manifest_by_path["receipt.json"] == _sha256_text((tmp_path / "receipt.json").read_bytes())
+    assert manifest_by_path["receipt.json"] == _sha256_text(bundled_receipt)
 
     receipt = json.loads((tmp_path / "receipt.json").read_text(encoding="utf-8"))
     proof_entries = [item for item in receipt["artifacts"] if item["id"] == "proof_bundle"]
     assert len(proof_entries) == 1
     assert proof_entries[0]["path"].endswith("proof_bundle.tar.gz")
+
+
+def _write_mock_proof_bundle_inputs(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
+    output_vcf = tmp_path / "out.vcf.gz"
+    provenance = tmp_path / "provenance.json"
+    logs = tmp_path / "logs.jsonl"
+    receipt = tmp_path / "receipt.json"
+    output_vcf.write_text("out\\n", encoding="utf-8")
+    provenance.write_text(json.dumps({"sha": "sample"}, indent=2, sort_keys=True) + "\\n", encoding="utf-8")
+    logs.write_text(json.dumps({"stream": "runner", "line": "mock"}, separators=(",", ":")) + "\\n", encoding="utf-8")
+    receipt.write_text(
+        json.dumps({"schema_version": "ogn.receipt.v1", "run_id": "run-mock-002"}, indent=2, sort_keys=True) + "\\n",
+        encoding="utf-8",
+    )
+    return output_vcf, provenance, logs, receipt
+
+
+def _read_manifest(bundle_path: Path) -> tuple[tuple[str, ...], dict, list[tuple[str, int, int, str]]]:
+    with tarfile.open(bundle_path, "r:gz") as tf:
+        names = tuple(sorted(tf.getnames()))
+        manifest_member = tf.getmember("manifest.json")
+        manifest = json.loads(tf.extractfile(manifest_member).read())
+        metadata = []
+        for name in sorted(tf.getnames()):
+            member = tf.getmember(name)
+            metadata.append((member.name, member.size, member.mtime, member.mode))
+    return names, manifest, metadata
+
+
+def test_ogn_runner_mock_proof_bundle_deterministic(tmp_path: Path) -> None:
+    created_at = "2026-01-01T00:00:00+00:00"
+    output_vcf, provenance, logs, receipt = _write_mock_proof_bundle_inputs(tmp_path)
+    first = tmp_path / "proof_bundle_first.tar.gz"
+    second = tmp_path / "proof_bundle_second.tar.gz"
+
+    _write_mock_proof_bundle(
+        bundle_path=first,
+        output_vcf=output_vcf,
+        provenance=provenance,
+        logs=logs,
+        receipt=receipt,
+        created_at=created_at,
+    )
+    _write_mock_proof_bundle(
+        bundle_path=second,
+        output_vcf=output_vcf,
+        provenance=provenance,
+        logs=logs,
+        receipt=receipt,
+        created_at=created_at,
+    )
+
+    first_names, first_manifest, first_member_meta = _read_manifest(first)
+    second_names, second_manifest, second_member_meta = _read_manifest(second)
+
+    assert first_names == second_names
+    assert first_manifest == second_manifest
+    assert first_manifest["created_at"] == second_manifest["created_at"] == created_at
+    assert first_member_meta == second_member_meta
