@@ -4,6 +4,7 @@ import hashlib
 import json
 import subprocess
 import sys
+import shutil
 from pathlib import Path
 
 from ogn_runner.receipt import build_receipt, make_artifact_receipt
@@ -16,6 +17,14 @@ def _sha256_text(value: str) -> str:
 
 def _runner_path() -> list[str]:
     return [sys.executable, "-m", "ogn_runner.verify_receipt"]
+
+
+def _mock_examples_spec(tmp_path: Path) -> tuple[Path, Path]:
+    repo_root = Path(__file__).resolve().parents[1]
+    source = repo_root / "examples" / "minimal-job" / "job_spec.json"
+    local_spec = tmp_path / "job_spec.json"
+    shutil.copy2(source, local_spec)
+    return local_spec, tmp_path
 
 
 def _write_receipt_with_artifact(tmp_path: Path) -> tuple[Path, Path]:
@@ -67,3 +76,45 @@ def test_verify_receipt_metadata_only(tmp_path: Path) -> None:
     artifact_path.unlink()
     proc = subprocess.run(_runner_path() + ["--metadata-only", str(receipt_path)], capture_output=True, text=True)
     assert proc.returncode == 0
+
+
+def test_verify_receipt_after_portable_copy(tmp_path: Path) -> None:
+    mock_runner = [sys.executable, "-m", "ogn_runner", "--mock"]
+    local_spec, mock_workdir = _mock_examples_spec(tmp_path)
+    proc = subprocess.run(mock_runner + [str(local_spec)], capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+
+    receipt_path = mock_workdir / "receipt.json"
+    out_vcf = mock_workdir / "out.vcf.gz"
+    provenance = mock_workdir / "provenance.json"
+    logs = mock_workdir / "logs.jsonl"
+
+    assert receipt_path.exists()
+    assert out_vcf.exists()
+    assert provenance.exists()
+    assert logs.exists()
+
+    portable_dir = tmp_path / "portable-bundle"
+    portable_dir.mkdir()
+    shutil.copy2(receipt_path, portable_dir / "receipt.json")
+    shutil.copy2(out_vcf, portable_dir / "out.vcf.gz")
+    shutil.copy2(provenance, portable_dir / "provenance.json")
+    shutil.copy2(logs, portable_dir / "logs.jsonl")
+
+    proc = subprocess.run(
+        _runner_path() + [str(portable_dir / "receipt.json")],
+        capture_output=True,
+        text=True,
+        cwd="/tmp",
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "receipt valid" in proc.stdout
+
+    proc = subprocess.run(
+        _runner_path()
+        + ["--base-dir", str(portable_dir), str(portable_dir / "receipt.json")],
+        capture_output=True,
+        text=True,
+        cwd="/tmp",
+    )
+    assert proc.returncode == 0, proc.stderr

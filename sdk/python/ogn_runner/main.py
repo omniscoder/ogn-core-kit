@@ -268,6 +268,15 @@ def _upload_to_uri(uri: str, src: Path, base_dir: Path) -> None:
     raise RuntimeError(f"unsupported output URI scheme: {scheme} ({uri})")
 
 
+def _output_path_for_receipt(target: ArtifactTarget, base_dir: Path) -> Path | None:
+    parsed = urllib.parse.urlparse(target.uri)
+    scheme = (parsed.scheme or "").lower()
+    if scheme in {"", "file"}:
+        raw_path = urllib.parse.unquote(parsed.path) if scheme == "file" else target.uri
+        return _resolve_local_path(raw_path, base_dir)
+    return None
+
+
 def _upload_outputs(
     artifacts: Mapping[str, ArtifactTarget],
     local_artifacts: Mapping[str, Path],
@@ -398,12 +407,15 @@ def _run_mock_mode(
                 if target.optional:
                     continue
                 continue
+            artifact_path = _output_path_for_receipt(target, base_dir=base_dir) or src
             receipt_artifacts.append(
                 make_artifact_receipt(
                     name=name,
-                    path=src,
+                    path=artifact_path,
                     media_type=target.media_type,
                     optional=target.optional,
+                    base_dir=base_dir,
+                    source_path=src,
                 )
             )
 

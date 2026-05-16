@@ -49,7 +49,26 @@ def _verify_verification_block(receipt: Mapping[str, Any]) -> list[str]:
     return messages
 
 
-def _verify_artifacts(receipt: Mapping[str, Any], metadata_only: bool) -> list[str]:
+def _resolve_artifact_path(
+    *,
+    value: str,
+    receipt_path: Path,
+    base_dir: Path | None = None,
+) -> Path:
+    candidate = Path(value)
+    if candidate.is_absolute():
+        return candidate
+    root = Path(base_dir) if base_dir is not None else receipt_path.parent
+    return (root / candidate).resolve()
+
+
+def _verify_artifacts(
+    receipt: Mapping[str, Any],
+    *,
+    receipt_path: Path,
+    metadata_only: bool,
+    base_dir: Path | None = None,
+) -> list[str]:
     messages: list[str] = []
     artifacts = receipt.get("artifacts")
     if not isinstance(artifacts, list):
@@ -63,7 +82,11 @@ def _verify_artifacts(receipt: Mapping[str, Any], metadata_only: bool) -> list[s
             messages.append(f"receipt.artifacts[{idx}].path must be a non-empty string")
             continue
         if not metadata_only:
-            artifact_path = Path(path)
+            artifact_path = _resolve_artifact_path(
+                value=path,
+                receipt_path=receipt_path,
+                base_dir=base_dir,
+            )
             if not artifact_path.exists():
                 messages.append(f"missing artifact: {path}")
                 continue
@@ -96,6 +119,7 @@ def _verify_hash(receipt: Mapping[str, Any]) -> list[str]:
 def verify_receipt(
     path: Path,
     metadata_only: bool = False,
+    base_dir: Path | None = None,
 ) -> list[str]:
     receipt = _read_receipt(path)
     messages: list[str] = []
@@ -108,7 +132,14 @@ def verify_receipt(
         return messages
 
     messages.extend(_verify_hash(receipt))
-    messages.extend(_verify_artifacts(receipt, metadata_only=metadata_only))
+    messages.extend(
+        _verify_artifacts(
+            receipt,
+            receipt_path=path,
+            metadata_only=metadata_only,
+            base_dir=base_dir,
+        )
+    )
     messages.extend(_verify_verification_block(receipt))
     return messages
 
@@ -117,6 +148,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="ogn-verify-receipt")
     parser.add_argument("receipt", help="Path to receipt.json")
     parser.add_argument("--metadata-only", action="store_true")
+    parser.add_argument("--base-dir", help="Override root directory for relative artifact paths")
     parsed = parser.parse_args(argv)
 
     receipt_path = Path(parsed.receipt)
@@ -124,7 +156,12 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     try:
-        messages = verify_receipt(receipt_path, metadata_only=parsed.metadata_only)
+        override_base_dir = Path(parsed.base_dir).resolve() if parsed.base_dir else None
+        messages = verify_receipt(
+            receipt_path,
+            metadata_only=parsed.metadata_only,
+            base_dir=override_base_dir,
+        )
     except ValueError as ex:
         print(f"ERROR: {ex}")
         return 2

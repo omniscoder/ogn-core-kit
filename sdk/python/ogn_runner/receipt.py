@@ -59,12 +59,33 @@ class ArtifactReceipt:
 
 
 def make_artifact_receipt(
-    *, name: str, path: Path, media_type: str | None = None, optional: bool = False
+    *,
+    name: str,
+    path: Path,
+    media_type: str | None = None,
+    optional: bool = False,
+    base_dir: Path | None = None,
+    source_path: Path | None = None,
 ) -> ArtifactReceipt:
+    receipt_path = path.resolve()
+    if base_dir is not None:
+        try:
+            base = base_dir.resolve()
+            receipt_path = Path(path)
+            if receipt_path.is_absolute():
+                receipt_path = receipt_path.resolve()
+            else:
+                receipt_path = base / receipt_path
+            receipt_path = receipt_path.resolve()
+            receipt_path = receipt_path.relative_to(base)
+        except ValueError:
+            receipt_path = path.resolve()
+        except Exception:
+            receipt_path = path.resolve()
     return ArtifactReceipt(
         id=name,
-        path=str(path.resolve()),
-        sha256=sha256_for_file(path),
+        path=str(receipt_path),
+        sha256=sha256_for_file(source_path or path),
         media_type=media_type,
         optional=optional,
     )
