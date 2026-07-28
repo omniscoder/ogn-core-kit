@@ -7,7 +7,11 @@ import sys
 import shutil
 from pathlib import Path
 
-from ogn_runner.receipt import build_receipt, make_artifact_receipt
+from ogn_runner.receipt import (
+    build_receipt,
+    compute_receipt_payload_sha256,
+    make_artifact_receipt,
+)
 from ogn_runner.verify_receipt import verify_receipt
 
 
@@ -118,3 +122,39 @@ def test_verify_receipt_after_portable_copy(tmp_path: Path) -> None:
         cwd="/tmp",
     )
     assert proc.returncode == 0, proc.stderr
+
+
+def test_verify_receipt_rejects_artifact_path_outside_bundle(tmp_path: Path) -> None:
+    bundle_dir = tmp_path / "bundle"
+    bundle_dir.mkdir()
+    outside = tmp_path / "outside.vcf"
+    outside.write_text("external artifact", encoding="utf-8")
+    receipt_path, _ = _write_receipt_with_artifact(bundle_dir)
+
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["artifacts"][0]["path"] = "../outside.vcf"
+    receipt["artifacts"][0]["sha256"] = hashlib.sha256(outside.read_bytes()).hexdigest()
+    receipt["hashes"]["receipt_payload_sha256"] = compute_receipt_payload_sha256(
+        receipt
+    )
+    receipt_path.write_text(
+        json.dumps(receipt, indent=2, sort_keys=True), encoding="utf-8"
+    )
+
+    messages = verify_receipt(receipt_path)
+
+    assert messages == ["artifact path escapes verification root: ../outside.vcf"]
+
+
+def test_verify_receipt_rejects_artifact_symlink_outside_bundle(tmp_path: Path) -> None:
+    bundle_dir = tmp_path / "bundle"
+    bundle_dir.mkdir()
+    outside = tmp_path / "outside.vcf"
+    outside.write_text("external artifact", encoding="utf-8")
+    receipt_path, artifact_path = _write_receipt_with_artifact(bundle_dir)
+    artifact_path.unlink()
+    artifact_path.symlink_to(outside)
+
+    messages = verify_receipt(receipt_path)
+
+    assert messages == [f"artifact path escapes verification root: {artifact_path}"]

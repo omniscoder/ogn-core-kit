@@ -56,10 +56,15 @@ def _resolve_artifact_path(
     base_dir: Path | None = None,
 ) -> Path:
     candidate = Path(value)
-    if candidate.is_absolute():
-        return candidate
-    root = Path(base_dir) if base_dir is not None else receipt_path.parent
-    return (root / candidate).resolve()
+    root = (Path(base_dir) if base_dir is not None else receipt_path.parent).resolve()
+    resolved = (
+        candidate.resolve() if candidate.is_absolute() else (root / candidate).resolve()
+    )
+    try:
+        resolved.relative_to(root)
+    except ValueError as ex:
+        raise ValueError(f"artifact path escapes verification root: {value}") from ex
+    return resolved
 
 
 def _verify_artifacts(
@@ -82,11 +87,15 @@ def _verify_artifacts(
             messages.append(f"receipt.artifacts[{idx}].path must be a non-empty string")
             continue
         if not metadata_only:
-            artifact_path = _resolve_artifact_path(
-                value=path,
-                receipt_path=receipt_path,
-                base_dir=base_dir,
-            )
+            try:
+                artifact_path = _resolve_artifact_path(
+                    value=path,
+                    receipt_path=receipt_path,
+                    base_dir=base_dir,
+                )
+            except ValueError as ex:
+                messages.append(str(ex))
+                continue
             if not artifact_path.exists():
                 messages.append(f"missing artifact: {path}")
                 continue
